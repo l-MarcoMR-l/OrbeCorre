@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Orbe Corre</title>
+<style>
+  :root{
+    --bg:#0b1020; --fg:#e6f0ff; --accent:#64d2ff; --good:#7CFF7A; --bad:#ff5f6d; --warn:#ffd166;
+  }
+  html,body{height:100%;}
+  body{margin:0;background:radial-gradient(1200px 800px at 50% -10%, #12203a, var(--bg));
+       color:var(--fg); font:16px/1.4 system-ui,Segoe UI,Roboto,Ubuntu; overflow:hidden;}
+  #ui{position:fixed; inset:0; pointer-events:none}
+  .hud{position:fixed; top:10px; left:10px; display:flex; gap:10px; align-items:center;
+       background:rgba(14,18,34,.45); border:1px solid rgba(255,255,255,.08); backdrop-filter: blur(6px);
+       padding:6px 10px; border-radius:12px; pointer-events:auto}
+  .hud .pill{padding:3px 8px; border-radius:999px; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06)}
+  .hud b{font-weight:700}
+  .btnbar{position:fixed; top:10px; right:10px; display:flex; gap:8px; pointer-events:auto}
+  .btn{border:1px solid rgba(255,255,255,.15); background:rgba(255,255,255,.07); color:var(--fg);
+       padding:8px 10px; border-radius:10px; cursor:pointer; user-select:none}
+  .btn:hover{background:rgba(255,255,255,.12)}
+  .overlay{position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:auto}
+  .card{max-width:760px; margin:16px; padding:18px; border-radius:16px; background:rgba(18,24,48,.88);
+        border:1px solid rgba(255,255,255,.1); box-shadow:0 20px 80px rgba(0,0,0,.5)}
+  .title{font-size:32px; font-weight:800; margin:0 0 6px}
+  .subtitle{opacity:.85; margin-bottom:10px}
+  .row{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+  .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, monospace; background:#111827; border:1px solid #374151;
+       color:#e5e7eb; padding:2px 6px; border-radius:6px}
+  .primary{background:linear-gradient(180deg, #6fe3ff, #2ebcff); color:#00111a; border:none}
+  .primary:hover{filter:brightness(1.05)}
+  canvas{display:block; width:100vw; height:100vh}
+  /* mobile stick */
+  #stick{position:fixed; left:14px; bottom:14px; width:120px; height:120px; pointer-events:auto}
+  #stick .base{position:absolute; inset:0; border-radius:50%; background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.15)}
+  #stick .nub{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:56px; height:56px; border-radius:50%;
+              background:rgba(255,255,255,.2); border:1px solid rgba(255,255,255,.3)}
+  @media (hover:none) and (pointer:coarse){ .hud{transform:scale(1.06)} }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Orb Rush Game" role="img"></canvas>
+<div id="ui">
+  <div class="hud" aria-live="polite">
+    <div class="pill">Puntaje: <b id="score">0</b></div>
+    <div class="pill">Mejor: <b id="best">0</b></div>
+    <div class="pill">Combo: <b id="combo">x1</b></div>
+    <div class="pill" id="power">—</div>
+  </div>
+  <div class="btnbar">
+    <button class="btn" id="pauseBtn">⏸️ Pausa</button>
+    <button class="btn" id="muteBtn">🔊 Sonido</button>
+    <button class="btn" id="restartBtn">🔄 Reiniciar</button>
+  </div>
+  <div id="stick" aria-hidden="true">
+    <div class="base"></div>
+    <div class="nub"></div>
+  </div>
+  <div class="overlay" id="start">
+    <div class="card">
+      <h1 class="title">Orbe Corre</h1>
+      <p class="subtitle">Recoge orbes <b style="color:var(--good)">verdes</b>, evita enemigos <b style="color:var(--bad)">rojos</b>, aprovecha <b style="color:var(--warn)">power-ups</b>.<br/>¡Sube el combo sin recibir daño!</p>
+      <div class="row" style="margin-bottom:10px">
+        <div>Controles: <span class="kbd">WASD</span>/<span class="kbd">Flechas</span> · <span class="kbd">P</span> pausa · <span class="kbd">R</span> reiniciar · Móvil: joystick</div>
+      </div>
+      <div class="row">
+        <button id="playBtn" class="btn primary">▶ Jugar</button>
+        <button id="howBtn" class="btn">¿Cómo puntúo?</button>
+      </div>
+      <div id="how" style="margin-top:8px; display:none">
+        <ul>
+          <li>+10 por orbe. Cada captura rápida aumenta <b>combo</b> (x1, x2, x3...).</li>
+          <li>Recibir daño reinicia el combo.</li>
+          <li>Power-ups: <b>⚡ Lento</b> (ralentiza enemigos), <b>🛡️ Escudo</b>, <b>🧲 Imán</b>.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="overlay" id="gameover" style="display:none">
+    <div class="card">
+      <h2 class="title" style="font-size:28px">¡Game Over!</h2>
+      <p style="margin:6px 0">Puntaje: <b id="finalScore">0</b> · Mejor: <b id="finalBest">0</b></p>
+      <div class="row">
+        <button class="btn primary" id="againBtn">Jugar de nuevo</button>
+        <button class="btn" id="shareBtn">Compartir puntaje</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  let W=innerWidth, H=innerHeight; canvas.width=W; canvas.height=H;
+  addEventListener('resize', ()=>{W=innerWidth;H=innerHeight;canvas.width=W;canvas.height=H});
+
+  // UI refs
+  const elScore = document.getElementById('score');
+  const elBest = document.getElementById('best');
+  const elCombo = document.getElementById('combo');
+  const elPower = document.getElementById('power');
+  const startOv = document.getElementById('start');
+  const gameoverOv = document.getElementById('gameover');
+  const finalScore = document.getElementById('finalScore');
+  const finalBest = document.getElementById('finalBest');
+  const playBtn = document.getElementById('playBtn');
+  const againBtn = document.getElementById('againBtn');
+  const howBtn = document.getElementById('howBtn');
+  const shareBtn = document.getElementById('shareBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const muteBtn = document.getElementById('muteBtn');
+  const restartBtn = document.getElementById('restartBtn');
+
+  // Audio (WebAudio minimal)
+  const AudioCtx = window.AudioContext || window.webkitAudioContext; let actx=null; let muted=false;
+  function beep(freq=880, dur=0.07, type='sine', vol=0.05){
+    if(muted) return; if(!actx) actx=new AudioCtx();
+    const o=actx.createOscillator(); const g=actx.createGain(); o.type=type; o.frequency.value=freq;
+    g.gain.value=vol; o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime+dur);
+  }
+
+  // RNG
+  const R = { r: Math.random, range:(a,b)=>a+Math.random()*(b-a), int:(a,b)=>Math.floor(a+Math.random()*(b-a+1)) };
+
+  // Game state
+  let running=false, paused=false, t=0, score=0, best=Number(localStorage.getItem('orb-best')||0);
+  let combo=1, comboTimer=0, player, orbs=[], foes=[], pows=[], particles=[];
+
+  const G = {
+    orbRate: 1.2, // spawns/sec
+    foeRate: 0.8,
+    baseFoeSpeed: 1.4,
+    orbLife: 12, // seconds
+    powRate: 0.18,
+    slowFactor: 0.45,
+  };
+
+  const keys = {Left:0,Right:0,Up:0,Down:0};
+  addEventListener('keydown', e=>{ if(e.repeat) return; if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A') keys.Left=1;
+    if(e.key==='ArrowRight'||e.key==='d'||e.key==='D') keys.Right=1;
+    if(e.key==='ArrowUp'||e.key==='w'||e.key==='W') keys.Up=1;
+    if(e.key==='ArrowDown'||e.key==='s'||e.key==='S') keys.Down=1;
+    if(e.key==='p'||e.key==='P') togglePause();
+    if(e.key==='r'||e.key==='R') restart();
+    if(e.key==='m'||e.key==='M') toggleMute();
+  });
+  addEventListener('keyup', e=>{ if(e.key==='ArrowLeft'||e.key==='a'||e.key==='A') keys.Left=0;
+    if(e.key==='ArrowRight'||e.key==='d'||e.key==='D') keys.Right=0;
+    if(e.key==='ArrowUp'||e.key==='w'||e.key==='W') keys.Up=0;
+    if(e.key==='ArrowDown'||e.key==='s'||e.key==='S') keys.Down=0; });
+
+  // Mobile joystick
+  const stick = document.getElementById('stick'); const nub = stick.querySelector('.nub');
+  let sv={x:0,y:0}, touching=false;
+  function setStick(dx,dy){ sv.x=dx; sv.y=dy; const r=44; nub.style.left=(60+dx*r)+"px"; nub.style.top=(60+dy*r)+"px"; }
+  stick.addEventListener('touchstart',e=>{ touching=true;}, {passive:true});
+  stick.addEventListener('touchend',e=>{ touching=false; setStick(0,0);}, {passive:true});
+  stick.addEventListener('touchmove',e=>{ const r=stick.getBoundingClientRect(); const t=e.touches[0];
+    const dx=(t.clientX-(r.left+r.width/2))/(r.width/2); const dy=(t.clientY-(r.top+r.height/2))/(r.height/2);
+    const len=Math.hypot(dx,dy)||1; const cl=Math.min(1,len); setStick(dx/len*cl, dy/len*cl); }, {passive:true});
+
+  function start(){ running=true; paused=false; score=0; combo=1; comboTimer=0; t=0;
+    player = {x:W*0.5,y:H*0.6,r:12,s:3.3,hp:1,shield:0,magnet:0,slow:0};
+    orbs.length=0; foes.length=0; pows.length=0; particles.length=0;
+    startOv.style.display='none'; gameoverOv.style.display='none';
+    loop(0);
+  }
+  function restart(){ if(!running){ start(); } else { start(); } }
+  function gameOver(){ running=false; gameoverOv.style.display='flex'; finalScore.textContent=score; best=Math.max(best,score); localStorage.setItem('orb-best', best); finalBest.textContent=best; beep(220,0.2,'sawtooth',0.06); }
+  function togglePause(){ if(!running) return; paused=!paused; pauseBtn.textContent = paused? '▶ Reanudar':'⏸️ Pausa'; }
+  function toggleMute(){ muted=!muted; muteBtn.textContent = muted? '🔇 Silencio':'🔊 Sonido'; }
+
+  playBtn.onclick = start; againBtn.onclick = restart; pauseBtn.onclick=togglePause; muteBtn.onclick=toggleMute; restartBtn.onclick=restart;
+  howBtn.onclick = ()=>{ const el=document.getElementById('how'); el.style.display = (el.style.display=='none')? 'block':'none' };
+  shareBtn.onclick = async ()=>{
+    const txt = `¡Mi puntaje en Orb Rush: ${score}! ¿Puedes superarlo?`;
+    if(navigator.share){ try{ await navigator.share({title:'Orb Rush', text:txt}); }catch(_){} }
+    else { navigator.clipboard.writeText(txt); alert('Puntaje copiado al portapapeles'); }
+  };
+
+  elBest.textContent = best;
+
+  function spawnOrb(){
+    const pad=30; const x=R.range(pad, W-pad), y=R.range(pad, H-pad);
+    orbs.push({x,y,r:8, born:t, life:G.orbLife});
+  }
+  function spawnFoe(){
+    // aparece en borde y persigue al jugador
+    const side = R.int(0,3); let x,y; const pad=20;
+    if(side===0){ x=R.range(0,W); y=-pad; } else if(side===1){ x=W+pad; y=R.range(0,H); }
+    else if(side===2){ x=R.range(0,W); y=H+pad; } else { x=-pad; y=R.range(0,H); }
+    const speed = G.baseFoeSpeed + 0.02*t/1000; // sube con el tiempo
+    foes.push({x,y,r:11, speed});
+  }
+  function spawnPow(){ // power-ups: slow, shield, magnet
+    const kinds=['slow','shield','magnet']; const k=kinds[R.int(0,kinds.length-1)];
+    const x=R.range(30,W-30), y=R.range(30,H-30);
+    pows.push({x,y,r:10, kind:k, spin:R.range(0,Math.PI*2)});
+  }
+
+  function movePlayer(dt){
+    const ax = (keys.Right-keys.Left) + sv.x; const ay = (keys.Down-keys.Up) + sv.y;
+    const len=Math.hypot(ax,ay)||1; const vx=ax/len*player.s; const vy=ay/len*player.s;
+    player.x = Math.max(player.r, Math.min(W-player.r, player.x + vx*dt));
+    player.y = Math.max(player.r, Math.min(H-player.r, player.y + vy*dt));
+  }
+
+  function collectOrb(i){
+    orbs.splice(i,1);
+    const now = performance.now();
+    // combo: captura dentro de 900ms desde la anterior
+    if(now - comboTimer < 900) combo = Math.min(10, combo+1); else combo=1;
+    comboTimer = now; score += 10 * combo; elScore.textContent=score; elCombo.textContent='x'+combo; beep(660+combo*8,0.06,'triangle',0.04);
+    // partículas
+    for(let k=0;k<12;k++) particles.push({x:player.x,y:player.y, vx:R.range(-1.5,1.5), vy:R.range(-1.5,1.5), life:400, c:'rgba(124,255,122,.9)'});
+  }
+  function hitPlayer(){
+    if(player.shield>0){ player.shield=0; elPower.textContent='Escudo roto'; beep(180,0.15,'square',0.05); return; }
+    combo=1; elCombo.textContent='x1'; beep(140,0.12,'sawtooth',0.05);
+    gameOver();
+  }
+  function takePow(i){
+    const p = pows[i]; pows.splice(i,1);
+    if(p.kind==='slow'){ player.slow=4000; elPower.textContent='⚡ Lento (4s)'; beep(520,0.08,'sine',0.05); }
+    if(p.kind==='shield'){ player.shield=1; elPower.textContent='🛡️ Escudo'; beep(420,0.08,'sine',0.05); }
+    if(p.kind==='magnet'){ player.magnet=5000; elPower.textContent='🧲 Imán (5s)'; beep(600,0.08,'sine',0.05); }
+  }
+
+  // Main loop
+  let last=0, orbAcc=0, foeAcc=0, powAcc=0;
+  function loop(ts){ if(!running) return; requestAnimationFrame(loop);
+    const dt = Math.min(32, ts-last || 16) / 16.666; last=ts; if(paused) return;
+    t += dt*16.666; orbAcc += dt; foeAcc += dt; powAcc += dt;
+
+    if(orbAcc > 60/G.orbRate){ orbAcc=0; spawnOrb(); }
+    if(foeAcc > 60/G.foeRate){ foeAcc=0; spawnFoe(); }
+    if(powAcc > 60/G.powRate){ powAcc=0; if(R.r()<0.6) spawnPow(); }
+
+    movePlayer(dt);
+
+    // Update
+    const slowActive = player.slow>0; if(player.slow>0) player.slow -= dt*16.666;
+    if(player.magnet>0) player.magnet -= dt*16.666;
+
+    // draw
+    ctx.clearRect(0,0,W,H);
+    // background glow
+    ctx.fillStyle='rgba(255,255,255,0.02)';
+    for(let i=0;i<3;i++){ ctx.beginPath(); ctx.arc(W/2, H/2, 200+i*60, 0, Math.PI*2); ctx.fill(); }
+
+    // orbs
+    for(let i=orbs.length-1;i>=0;i--){ const o=orbs[i];
+      const age=(t-o.born)/1000; if(age>o.life){ orbs.splice(i,1); continue; }
+      if(player.magnet>0){ const dx=player.x-o.x, dy=player.y-o.y; const d=Math.hypot(dx,dy)+0.001; if(d<220){ o.x += (dx/d)*1.8; o.y += (dy/d)*1.8; } }
+      ctx.beginPath(); ctx.fillStyle='rgba(124,255,122,0.95)'; ctx.shadowColor='rgba(124,255,122,0.6)'; ctx.shadowBlur=10;
+      ctx.arc(o.x,o.y,o.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+      // collision
+      if(Math.hypot(o.x-player.x,o.y-player.y) < o.r+player.r){ collectOrb(i); }
+    }
+
+    // foes
+    for(let i=foes.length-1;i>=0;i--){ const f=foes[i];
+      const dx=player.x-f.x, dy=player.y-f.y; const d=Math.hypot(dx,dy)||1; const sp = f.speed*(slowActive? G.slowFactor:1);
+      f.x += dx/d*sp*dt; f.y += dy/d*sp*dt;
+      ctx.beginPath(); ctx.fillStyle='rgba(255,95,109,0.95)'; ctx.shadowColor='rgba(255,95,109,0.5)'; ctx.shadowBlur=8;
+      ctx.arc(f.x,f.y,f.r,0,Math.PI*2); ctx.fill(); ctx.shadowBlur=0;
+      if(Math.hypot(f.x-player.x,f.y-player.y) < f.r+player.r){ hitPlayer(); return; }
+    }
+
+    // power-ups
+    for(let i=pows.length-1;i>=0;i--){ const p=pows[i]; p.spin += 0.07*dt; const c = p.kind==='slow'? '#ffd166' : p.kind==='shield'? '#64d2ff' : '#f7ff5a';
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.spin); ctx.strokeStyle=c; ctx.lineWidth=2; ctx.beginPath(); ctx.rect(-10,-10,20,20); ctx.stroke(); ctx.restore();
+      if(Math.hypot(p.x-player.x,p.y-player.y) < p.r+player.r){ takePow(i); }
+    }
+
+    // particles
+    for(let i=particles.length-1;i>=0;i--){ const P=particles[i]; P.x+=P.vx*dt; P.y+=P.vy*dt; P.life-=dt*16.666; if(P.life<=0){particles.splice(i,1); continue;}
+      ctx.fillStyle=P.c; ctx.fillRect(P.x,P.y,2,2);
+    }
+
+    // player
+    ctx.beginPath(); ctx.fillStyle = player.shield>0? 'rgba(100,210,255,0.95)':'#e6f0ff';
+    ctx.arc(player.x,player.y,player.r,0,Math.PI*2); ctx.fill();
+
+    // UI ticks
+    elPower.style.opacity = (player.slow>0||player.shield>0||player.magnet>0)? 1: .6;
+    elBest.textContent = best;
+  }
+})();
+</script>
+</body>
+</html>
